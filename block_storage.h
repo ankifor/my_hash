@@ -7,6 +7,44 @@ using namespace std;
 template<typename T, size_t block_bytes>
 
 class Block_Storage {
+public: 
+
+	class Iterator {
+	public:
+		Iterator(Block_Storage<T,block_bytes>& storage, size_t pos) 
+			: _storage(storage), _block(0), _pos_in_block(0), _pos(pos)
+		{
+			_block = pos / _storage._block_size;
+			_pos_in_block = pos - _block * _storage._block_size;
+		}
+			
+		~Iterator() {}
+		
+		bool operator==(const Iterator& it) const { return _pos == it._pos; }
+		bool operator!=(const Iterator& it) const { return _pos != it._pos; }
+
+		Iterator& operator++() { //prefix increment
+			if (_pos_in_block < _storage._block_size) {
+				++_pos_in_block;
+			} else {
+				_pos_in_block = 0;
+				++_block;
+			}
+			++_pos;
+			return *this;
+		}
+		
+		T& operator*() const { return _storage._blocks[_block][_pos_in_block]; }
+	private:
+		Block_Storage<T,block_bytes>& _storage;
+		size_t _block;
+		size_t _pos_in_block;
+		size_t _pos;
+	};
+	
+	Iterator begin() { return Iterator(*this,0); }
+	Iterator end() { return Iterator(*this,_size); }
+	
 private:
 	const size_t _block_size = block_bytes / sizeof(T);
 	vector<T*> _blocks;
@@ -31,11 +69,11 @@ public:
 		_blocks.clear();
 	}
 	
-	void insert(T&& t) {
+	T* insert(T&& t) {
 		check_new_block();
 		_blocks[_last_block][_last_block_size] = t;
-		++_last_block_size;
 		++_size;
+		return &_blocks[_last_block][_last_block_size++];
 	}
 	
 	void reset() {
