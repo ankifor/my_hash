@@ -24,7 +24,7 @@ public:
 		bool operator!=(const Iterator& it) const { return _pos != it._pos; }
 
 		Iterator& operator++() { //prefix increment
-			if (_pos_in_block < _storage._block_size) {
+			if (_pos_in_block < _storage._block_size - 1) {
 				++_pos_in_block;
 			} else {
 				_pos_in_block = 0;
@@ -34,7 +34,9 @@ public:
 			return *this;
 		}
 		
-		T& operator*() const { return _storage._blocks[_block][_pos_in_block]; }
+		T& operator*() { return _storage._blocks[_block][_pos_in_block]; }
+		
+		T* get_data() { return &_storage._blocks[_block][_pos_in_block]; }
 	private:
 		Block_Storage<T,block_bytes>& _storage;
 		size_t _block;
@@ -60,9 +62,13 @@ public:
 		allocate_block();
 	}
 	
-	~Block_Storage() {
+	~Block_Storage() { clear();}
+	
+	void clear() {
 		for (size_t i = 0; i < _blocks.size(); ++i) {
-			delete [] _blocks[i];
+			if (_blocks[i] != nullptr) {
+				delete [] _blocks[i];
+			}
 			_blocks[i] = nullptr;
 		}
 		reset();

@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 	
 	using type_key = tuple<Integer,Integer,Integer>;
 	using type_val = tuple<Numeric<2,0>>;
-	using p = tuple<type_key,type_val,void*>;
+	//using p = tuple<type_key,type_val,void*>;
 	
 //	Block_Storage<p, 1024*400> storage;
 //	for (size_t tid = 0; tid < db.order.size(); ++tid) {
@@ -71,25 +71,28 @@ int main(int argc, char **argv)
 //				,make_tuple(db.order.o_ol_cnt[tid])
 //			));
 //		}
-			h.modify(make_pair(
-				make_tuple(db.order.o_d_id[tid],db.order.o_w_id[tid],db.order.o_carrier_id[tid])
-				,make_tuple(db.order.o_ol_cnt[tid])
-			), upd);
+		
+//			h.modify(make_pair(
+//				make_tuple(db.order.o_d_id[tid],db.order.o_w_id[tid],db.order.o_carrier_id[tid])
+//				,make_tuple(db.order.o_ol_cnt[tid])
+//			), upd);
+		h._storage.insert(make_tuple(
+			make_tuple(db.order.o_d_id[tid],db.order.o_w_id[tid],db.order.o_carrier_id[tid])
+			,make_tuple(db.order.o_ol_cnt[tid])
+			,nullptr
+		));
 	}
 	
-
-//	cout << "raw" << endl;
-//	for (auto x : h._hash_table) {
-//		cout << x << endl;
-//	}	
-//	for (auto it = h._storage.begin(); it != h._storage.end();++it) {
-//		cout << *it << endl;
-//	}
+	h.build_from_storage(upd);
 	
+	
+	size_t cnt = 0;
 	cout << "hash" << endl;
 	for (auto it = h.begin(); it != h.end(); ++it) {
 		cout << *it << endl;
+		++cnt;
 	}
+	cout << h.size() << " vs " << h._storage.size()<< " vs " << cnt << endl;
 	
 	return 0;
 }
