@@ -74,6 +74,7 @@ public:
 		reset();
 		_blocks.clear();
 	}
+
 	
 	T* insert(T&& t) {
 		check_new_block();
