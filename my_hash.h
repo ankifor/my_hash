@@ -102,21 +102,21 @@ public:
 
 	size_t size() const { return _size;}
 	
-	Iterator insert(pair<_Key, _Tp>&& x) {
+	Iterator insert(_Key&& key, _Tp&& val) {
 		_Hash h;
-		size_t bucket = h(x.first) % _hash_table.size();
+		size_t bucket = h(key) % _hash_table.size();
 		Entry** current = &_hash_table[bucket];
 		//if unique, then insert to the beginning of the bucket
 		//else insert before the first item with the same key
 		if (!_Unique) {
 			_Pred eq;
 			while (*current != nullptr) {
-				if (eq(get<0>(x), get<_Key_N>(**current))) break;
+				if (eq(key, get<_Key_N>(**current))) break;
 				current = reinterpret_cast<Entry**>(&get<_Next_N>(**current));
 			}
 		}
 		*current = _storage.insert(make_tuple(
-			x.first, x.second, reinterpret_cast<void*>(*current)));
+			key, val, reinterpret_cast<void*>(*current)));
 		++_size;
 		
 		rehash_if_full();
@@ -124,24 +124,24 @@ public:
 		return Iterator(*this, bucket, *current);
 	}
 	
-	Iterator modify(pair<_Key, _Tp>&& x, Update_Fun upd) {
+	Iterator modify(_Key&& key, _Tp&& val, Update_Fun upd) {
 		_Hash h;
 		_Pred eq;
 		
-		size_t bucket = h(x.first) % _hash_table.size();
+		size_t bucket = h(key) % _hash_table.size();
 		Entry** current = &_hash_table[bucket];
 		//search for key
-		while (*current != nullptr && !eq(x.first, get<_Key_N>(**current))) {
+		while (*current != nullptr && !eq(key, get<_Key_N>(**current))) {
 			current = reinterpret_cast<Entry**>(&get<_Next_N>(**current));
 		}
 		
 		if (!_Unique || *current == nullptr) {
 			//insert
-			*current = _storage.insert(make_tuple(x.first, x.second, (void*) *current));
+			*current = _storage.insert(make_tuple(key, val, (void*) *current));
 			++_size;
 		} else {
 			//update
-			upd(get<_Tp_N>(**current),x.second);
+			upd(get<_Tp_N>(**current),val);
 		}
 		
 		rehash_if_full();
@@ -187,6 +187,7 @@ public:
 	void build_from_storage(Update_Fun upd = nullptr) {
 		static_assert(_Unique || !with_update
 			, "_Unique=false and with_update=true are incompatible");
+		assert(!_Unique || !with_update || upd != nullptr);
 		//allocate buckets
 		size_t sz = size_t(double(_storage.size()) / _target_load_factor() );
 		rehash<with_update>(sz,upd);
