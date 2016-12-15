@@ -22,10 +22,7 @@ template<
 class My_Hash {
 public:
 	using Entry = tuple<_Key, _Tp, void*>;
-	
-	//using Update_Fun = void (*)(_Tp& left, const _Tp& right);
 	Block_Storage<Entry, 1024*400> _storage;
-	
 	
 private:
 	
@@ -41,69 +38,26 @@ private:
 	size_t _size;
 	_UpdFunc _upd;
 	
-public:
-	
-	class Iterator {
-	public:
-		Iterator(My_Hash& my_hash, size_t bucket, My_Hash::Entry* entry) 
-			: _hash(my_hash), _bucket(bucket), _entry(entry) {}
-			
-		~Iterator() {}
-		
-		bool operator==(const Iterator& it) const { return _entry==it._entry; }
-		bool operator!=(const Iterator& it) const { return _entry!=it._entry; }
-		
-		Iterator& operator++() { //prefix increment
-			if (get<_Next_N>(*_entry) != nullptr) {
-				_entry = reinterpret_cast<Entry*>(get<_Next_N>(*_entry));
-			} else {
-				_entry = nullptr;
-				while (++_bucket < _hash._hash_table.size()) {
-					_entry = _hash._hash_table[_bucket];
-					if (_entry != nullptr) break;
-				}
-			}
-
-			return *this;
-		}
-		
-		Entry& operator*() const { return *_entry; }
-	private:
-		My_Hash& _hash;
-		size_t _bucket;
-		Entry* _entry;
-	};
-	
-	Iterator begin() { 
-		size_t i = 0;
-		for (i = 0; i < _hash_table.size() && _hash_table[i] == nullptr; ++i) {
-			;
-		}
-		if (i == _hash_table.size()) {
-			return Iterator(*this,i, nullptr); 
-		} else {
-			return Iterator(*this,i, _hash_table[i]); 
-		}
-	}
-	Iterator end() { return Iterator(*this,_hash_table.size(),nullptr); }
-
-private:
 	void calculate_next_size_threshold() {
 		_size_threshold = size_t(_target_load_factor() * double(_hash_table.size()));
 	}
 
 	void rehash_if_full() {
-		if (_size < _size_threshold) {
-			return;
-		}
+		if (_size < _size_threshold) return;
 		size_t new_log2_size = _log2_n_buckets + 1;
 		rehash<false>(new_log2_size);
 	}
+	size_t get_bucket(_Key key) {
+		_Hash h;
+		return h(key) & ((1ull << _log2_n_buckets)-1);
+	}
+
 public:
-	My_Hash() : _size(0) 
+	class Iterator;
+
+	My_Hash() : _log2_n_buckets(_min_log2_n_buckets),_size(0)
 	{
-		_hash_table.resize(1 << _min_log2_n_buckets, 0);
-		_log2_n_buckets = _min_log2_n_buckets;
+		_hash_table.resize(1 << _log2_n_buckets, 0);
 		calculate_next_size_threshold();
 	}
 	
@@ -117,11 +71,6 @@ public:
 	}
 
 	size_t size() const { return _size;}
-	
-	size_t get_bucket(_Key key) {
-		_Hash h;
-		return h(key) & ((1ull << _log2_n_buckets)-1);
-	}
 	
 	Iterator insert(_Key key, _Tp val) {
 		size_t bucket = get_bucket(key);
@@ -144,7 +93,7 @@ public:
 		return Iterator(*this, bucket, *current);
 	}
 	
-	Iterator modify(_Key&& key, _Tp val) {
+	Iterator modify(_Key key, _Tp val) {
 		_Pred eq;
 		
 		size_t bucket = get_bucket(key);
@@ -153,7 +102,6 @@ public:
 		while (*current != nullptr && !eq(key, get<_Key_N>(**current))) {
 			current = reinterpret_cast<Entry**>(&get<_Next_N>(**current));
 		}
-		
 		if (!_Unique || *current == nullptr) {
 			//insert
 			*current = _storage.insert(make_tuple(key, val, (void*) *current));
@@ -167,7 +115,7 @@ public:
 		return Iterator(*this, bucket, *current);
 	}
 	
-	Iterator find(_Key&& x) {
+	Iterator find(_Key x) {
 		size_t bucket = get_bucket(x);
 		Entry* current = _hash_table[bucket];
 		_Pred eq;
@@ -201,13 +149,9 @@ public:
 	
 	template<bool with_update>
 	void build_from_storage() {
-		static_assert(_Unique || !with_update
-			, "_Unique=false and with_update=true are incompatible");
-		//assert(!_Unique || !with_update);
-		//allocate buckets
+		static_assert(_Unique || !with_update, "_Unique=false and with_update=true are incompatible");
 		size_t sz = size_t(double(_storage.size()) / _target_load_factor() );
-		size_t tmp = size_t(log2(sz));//TODO
-		
+		size_t tmp = size_t(log2(sz));
 		
 		rehash<with_update>(tmp);
 	}
@@ -250,6 +194,47 @@ public:
 		}
 	}
 	
+
+//Iterator description
+public:
+	
+	class Iterator {
+	public:
+		Iterator(My_Hash& my_hash, size_t bucket, My_Hash::Entry* entry) 
+			: _hash(my_hash), _bucket(bucket), _entry(entry) {}
+			
+		~Iterator() {}
+		
+		bool operator==(const Iterator& it) const { return _entry==it._entry; }
+		bool operator!=(const Iterator& it) const { return _entry!=it._entry; }
+		
+		Iterator& operator++() { //prefix increment
+			if (get<_Next_N>(*_entry) != nullptr) {
+				_entry = reinterpret_cast<Entry*>(get<_Next_N>(*_entry));
+			} else {
+				_entry = nullptr;
+				while (++_bucket < _hash._hash_table.size()) {
+					_entry = _hash._hash_table[_bucket];
+					if (_entry != nullptr) break;
+				}
+			}
+
+			return *this;
+		}
+		
+		Entry& operator*() const { return *_entry; }
+	private:
+		My_Hash& _hash;
+		size_t _bucket;
+		Entry* _entry;
+	};
+	
+	Iterator begin() { 
+		size_t i = 0;
+		for (i = 0; i < _hash_table.size() && _hash_table[i] == nullptr; ++i) {;}
+		return Iterator(*this,i, (i == _hash_table.size()?nullptr:_hash_table[i]));
+	}
+	Iterator end() { return Iterator(*this,_hash_table.size(),nullptr); }
 };
 
 
