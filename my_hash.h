@@ -4,17 +4,25 @@
 #include <vector>
 #include "block_storage.h"
 
+template<typename _Tp>
+class Dummy_UpdFunc {
+	void operator()(_Tp& left, const _Tp& right) {}
+};
+
 using namespace std;
 template<
 	typename _Key, 
 	typename _Tp,
 	typename _Hash = hash<_Key>,
 	typename _Pred = equal_to<_Key>,
-	bool _Unique = true >
+	bool _Unique = true,
+	typename _UpdFunc = Dummy_UpdFunc<_Tp> 
+	>
 class My_Hash {
 public:
 	using Entry = tuple<_Key, _Tp, void*>;
-	using Update_Fun = void (*)(_Tp& left, const _Tp& right);
+	
+	//using Update_Fun = void (*)(_Tp& left, const _Tp& right);
 	Block_Storage<Entry, 1024*400> _storage;
 	
 	
@@ -25,10 +33,12 @@ private:
 	static const size_t _Next_N = 2;
 	constexpr double _target_load_factor() {return 0.75;}
 	constexpr double _expansion_factor() {return 1.5;}
-	static const size_t _min_buckets = 16;
+	static const size_t _min_buckets = 1024;
+	size_t _size_threshold;
 	
 	vector<Entry*> _hash_table;
 	size_t _size;
+	_UpdFunc _upd;
 	
 public:
 	
@@ -77,14 +87,17 @@ public:
 	Iterator end() { return Iterator(*this,_hash_table.size(),nullptr); }
 
 private:
+	void calculate_next_size_threshold() {
+		_size_threshold = size_t(_target_load_factor() * double(_hash_table.size()));
+	}
+
 	void rehash_if_full() {
-		if (double(_size)/double(_hash_table.size()) < _target_load_factor()) {
+		if (_size < _size_threshold) {
 			return;
 		}
 		size_t new_size = size_t(_expansion_factor() * double(_hash_table.size()));
 		assert(new_size > _hash_table.size());
-		
-		rehash<false>(new_size, nullptr);
+		rehash<false>(new_size);
 	}
 public:
 	My_Hash() : _size(0) 
@@ -102,7 +115,7 @@ public:
 
 	size_t size() const { return _size;}
 	
-	Iterator insert(_Key&& key, _Tp&& val) {
+	Iterator insert(_Key key, _Tp val) {
 		_Hash h;
 		size_t bucket = h(key) % _hash_table.size();
 		Entry** current = &_hash_table[bucket];
@@ -124,7 +137,7 @@ public:
 		return Iterator(*this, bucket, *current);
 	}
 	
-	Iterator modify(_Key&& key, _Tp&& val, Update_Fun upd) {
+	Iterator modify(_Key&& key, _Tp val) {
 		_Hash h;
 		_Pred eq;
 		
@@ -141,7 +154,7 @@ public:
 			++_size;
 		} else {
 			//update
-			upd(get<_Tp_N>(**current),val);
+			_upd(get<_Tp_N>(**current),val);
 		}
 		
 		rehash_if_full();
@@ -184,23 +197,25 @@ public:
 	}
 	
 	template<bool with_update>
-	void build_from_storage(Update_Fun upd = nullptr) {
+	void build_from_storage() {
 		static_assert(_Unique || !with_update
 			, "_Unique=false and with_update=true are incompatible");
-		assert(!_Unique || !with_update || upd != nullptr);
+		assert(!_Unique || !with_update);
 		//allocate buckets
 		size_t sz = size_t(double(_storage.size()) / _target_load_factor() );
-		rehash<with_update>(sz,upd);
+		rehash<with_update>(sz);
 	}
 	
 	template<bool with_update>
-	void rehash(size_t newsize, Update_Fun upd = nullptr) {
-		assert(!_Unique || !with_update || upd != nullptr);
+	void rehash(size_t newsize) {
+		assert(!_Unique || !with_update);
 		if (newsize < _min_buckets) newsize = _min_buckets;
 		//_hash_table.clear();
 		_hash_table.resize(newsize);
+		calculate_next_size_threshold();
 		memset(_hash_table.data(), 0, _hash_table.size()*sizeof(Entry*));
 		_size = 0;
+		
 		
 		_Hash h;
 		_Pred eq;
@@ -225,7 +240,7 @@ public:
 				++_size;
 			} else {
 				//update
-				upd(get<_Tp_N>(**current),get<_Tp_N>(*it));
+				_upd(get<_Tp_N>(**current),get<_Tp_N>(*it));
 			}
 		}
 	}
