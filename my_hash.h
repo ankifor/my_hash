@@ -6,6 +6,7 @@
 
 template<typename _Tp>
 class Dummy_UpdFunc {
+public:
 	void operator()(_Tp& left, const _Tp& right) {}
 };
 
@@ -32,8 +33,8 @@ private:
 	static const size_t _Tp_N = 1;
 	static const size_t _Next_N = 2;
 	constexpr double _target_load_factor() {return 0.75;}
-	constexpr double _expansion_factor() {return 1.5;}
-	static const size_t _min_buckets = 1024;
+	static const size_t _min_log2_n_buckets = 10;
+	size_t _log2_n_buckets;
 	size_t _size_threshold;
 	
 	vector<Entry*> _hash_table;
@@ -95,14 +96,15 @@ private:
 		if (_size < _size_threshold) {
 			return;
 		}
-		size_t new_size = size_t(_expansion_factor() * double(_hash_table.size()));
-		assert(new_size > _hash_table.size());
-		rehash<false>(new_size);
+		size_t new_log2_size = _log2_n_buckets + 1;
+		rehash<false>(new_log2_size);
 	}
 public:
 	My_Hash() : _size(0) 
 	{
-		_hash_table.resize(_min_buckets, 0);
+		_hash_table.resize(1 << _min_log2_n_buckets, 0);
+		_log2_n_buckets = _min_log2_n_buckets;
+		calculate_next_size_threshold();
 	}
 	
 	~My_Hash() { clear(); }
@@ -111,13 +113,18 @@ public:
 		_storage.clear();
 		_hash_table.clear();
 		_size = 0;
+		_log2_n_buckets = -1;
 	}
 
 	size_t size() const { return _size;}
 	
-	Iterator insert(_Key key, _Tp val) {
+	size_t get_bucket(_Key key) {
 		_Hash h;
-		size_t bucket = h(key) % _hash_table.size();
+		return h(key) & ((1ull << _log2_n_buckets)-1);
+	}
+	
+	Iterator insert(_Key key, _Tp val) {
+		size_t bucket = get_bucket(key);
 		Entry** current = &_hash_table[bucket];
 		//if unique, then insert to the beginning of the bucket
 		//else insert before the first item with the same key
@@ -138,10 +145,9 @@ public:
 	}
 	
 	Iterator modify(_Key&& key, _Tp val) {
-		_Hash h;
 		_Pred eq;
 		
-		size_t bucket = h(key) % _hash_table.size();
+		size_t bucket = get_bucket(key);
 		Entry** current = &_hash_table[bucket];
 		//search for key
 		while (*current != nullptr && !eq(key, get<_Key_N>(**current))) {
@@ -162,9 +168,7 @@ public:
 	}
 	
 	Iterator find(_Key&& x) {
-		_Hash h;
-		
-		size_t bucket = h(x) % _hash_table.size();
+		size_t bucket = get_bucket(x);
 		Entry* current = _hash_table[bucket];
 		_Pred eq;
 		while (current != nullptr && !eq(x, get<_Key_N>(*current))) {
@@ -177,8 +181,7 @@ public:
 	pair<Iterator,Iterator> equal_range(_Key&& x) {
 		_Hash h;
 		
-		size_t bucket = h(x);
-		bucket %= _hash_table.size();
+		size_t bucket = get_bucket(x);
 		Entry* left = _hash_table[bucket];
 		_Pred eq;
 		while (left != nullptr && !eq(x, get<_Key_N>(*left))) {
@@ -200,30 +203,32 @@ public:
 	void build_from_storage() {
 		static_assert(_Unique || !with_update
 			, "_Unique=false and with_update=true are incompatible");
-		assert(!_Unique || !with_update);
+		//assert(!_Unique || !with_update);
 		//allocate buckets
 		size_t sz = size_t(double(_storage.size()) / _target_load_factor() );
-		rehash<with_update>(sz);
+		size_t tmp = size_t(log2(sz));//TODO
+		
+		
+		rehash<with_update>(tmp);
 	}
 	
 	template<bool with_update>
-	void rehash(size_t newsize) {
+	void rehash(size_t new_log2_n_buckets) {
 		assert(!_Unique || !with_update);
-		if (newsize < _min_buckets) newsize = _min_buckets;
+		if (new_log2_n_buckets < _min_log2_n_buckets) 
+			new_log2_n_buckets = _min_log2_n_buckets;
 		//_hash_table.clear();
-		_hash_table.resize(newsize);
+		_hash_table.resize(1ull << new_log2_n_buckets);
+		_log2_n_buckets = new_log2_n_buckets;
 		calculate_next_size_threshold();
 		memset(_hash_table.data(), 0, _hash_table.size()*sizeof(Entry*));
 		_size = 0;
 		
-		
-		_Hash h;
 		_Pred eq;
-		
 		size_t bucket = 0;
 		Entry** current = nullptr;
 		for (auto it = _storage.begin(); it != _storage.end(); ++it) {
-			bucket = h(get<_Key_N>(*it)) % _hash_table.size();
+			bucket = get_bucket(get<_Key_N>(*it));
 			current = &_hash_table[bucket];
 			//search for key
 			if (!_Unique || with_update) {
